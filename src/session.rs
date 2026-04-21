@@ -470,6 +470,11 @@ pub async fn logout(data_dir: &Path) -> anyhow::Result<()> {
             .with_context(|| format!("Failed to remove store at {}", store.display()))?;
     }
 
+    // kill any running daemon
+    let _ = std::process::Command::new("pkill")
+        .args(["-f", "psst.*daemon"])
+        .status();
+
     if server_logout_ok {
         eprintln!("logged out and cleaned up session for {}", meta.user_id);
     } else {

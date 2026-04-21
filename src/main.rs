@@ -160,7 +160,7 @@ async fn main() -> Result<()> {
             tracing::info!(
                 notifications_enabled = config.notifications.enabled,
                 quiet_hours = config.behavior.quiet_hours.enabled,
-                "Config loaded"
+                "config loaded"
             );
             daemon::run(&data_dir, config, &config_path).await
         }

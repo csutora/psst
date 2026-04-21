@@ -21,7 +21,13 @@ use crate::notification::{self, Notification, Notifier};
 use crate::session;
 
 pub async fn run(data_dir: &Path, config: Config, config_path: &Path) -> anyhow::Result<()> {
-    let client = session::restore_session(data_dir).await?;
+    let client = match session::restore_session(data_dir).await {
+        Ok(c) => c,
+        Err(_) => {
+            tracing::info!("no session found, run `psst login` first");
+            return Ok(());
+        }
+    };
 
     let user_id = client
         .user_id()
@@ -108,6 +114,11 @@ pub async fn run(data_dir: &Path, config: Config, config_path: &Path) -> anyhow:
                     }
                 }
                 Some(SyncState::Error(e)) => {
+                    let msg = e.to_string();
+                    if msg.contains("M_UNKNOWN_TOKEN") {
+                        tracing::error!(error = %e, "session invalidated, shutting down");
+                        break;
+                    }
                     tracing::warn!(error = %e, "sync error, restarting in 2s");
                     tokio::time::sleep(Duration::from_secs(2)).await;
                     state_handle.start().await;
