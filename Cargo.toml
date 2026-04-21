@@ -1,0 +1,70 @@
+[package]
+name = "psst"
+version = "0.1.0"
+edition = "2021"
+description = "a matrix notification daemon"
+license = "MIT"
+
+[dependencies]
+# matrix
+matrix-sdk = { version = "0.16", features = ["e2e-encryption", "sqlite", "bundled-sqlite"] }
+matrix-sdk-ui = "0.16"
+
+# async runtime
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+
+# cli
+clap = { version = "4", features = ["derive"] }
+
+# serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+
+# error handling
+anyhow = "1"
+
+# logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+
+# platform directories
+directories = "6"
+
+# credentials
+keyring = { version = "3", features = ["apple-native"] }
+rpassword = "7"
+
+# time
+chrono = { version = "0.4", features = ["serde"] }
+
+# filesystem watcher (for config hot-reload)
+notify = "8"
+
+# signal handling
+signal-hook = "0.4"
+signal-hook-tokio = { version = "0.4", features = ["futures-v0_3"] }
+
+# misc
+rand = "0.8"
+hostname = "0.4"
+
+# linux: dbus notifications via notify-rust
+[target.'cfg(target_os = "linux")'.dependencies]
+notify-rust = "4"
+
+# darwin: native notifications via objc2 UNUserNotificationCenter
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSArray"] }
+block2 = "0.6"
+objc2-user-notifications = { version = "0.3", features = [
+    "UNUserNotificationCenter",
+    "UNNotificationContent",
+    "UNNotificationRequest",
+    "UNNotificationSound",
+    "UNNotificationSettings",
+    "block2",
+] }
