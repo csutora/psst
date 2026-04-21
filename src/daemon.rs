@@ -88,9 +88,11 @@ pub async fn run(data_dir: &Path, config: Config, config_path: &Path) -> anyhow:
         .await
         .context("failed to build SyncService")?;
 
-    // monitor sync state changes
+    // monitor sync state changes and restart on error
     let state_sync_flag = initial_sync_done.clone();
-    let mut state_subscriber = sync_service.state();
+    let sync_service_handle = Arc::new(sync_service);
+    let state_handle = sync_service_handle.clone();
+    let mut state_subscriber = state_handle.state();
     let state_task = tokio::spawn(async move {
         let mut first_running = true;
         loop {
@@ -106,7 +108,9 @@ pub async fn run(data_dir: &Path, config: Config, config_path: &Path) -> anyhow:
                     }
                 }
                 Some(SyncState::Error(e)) => {
-                    tracing::error!(error = %e, "sync error");
+                    tracing::warn!(error = %e, "sync error, restarting in 2s");
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    state_handle.start().await;
                 }
                 Some(SyncState::Terminated) => {
                     tracing::info!("sync terminated");
@@ -120,7 +124,7 @@ pub async fn run(data_dir: &Path, config: Config, config_path: &Path) -> anyhow:
         }
     });
 
-    sync_service.start().await;
+    sync_service_handle.start().await;
 
     let rooms = client.joined_rooms();
     let encrypted_count = rooms.iter().filter(|r| r.encryption_state().is_encrypted()).count();
@@ -181,7 +185,7 @@ pub async fn run(data_dir: &Path, config: Config, config_path: &Path) -> anyhow:
     }
 
     tracing::info!("stopping sync service");
-    sync_service.stop().await;
+    sync_service_handle.stop().await;
     state_task.abort();
 
     drop(client);
