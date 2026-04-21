@@ -4,6 +4,11 @@ let
   cfg = config.services.psst;
   settingsFormat = pkgs.formats.toml { };
   configFile = settingsFormat.generate "psst-config.toml" cfg.settings;
+
+  # match the paths psst uses by default (via the `directories` crate)
+  configDir = if pkgs.stdenv.hostPlatform.isDarwin
+    then "Library/Application Support/com.csutora.psst"
+    else ".config/psst";
 in
 {
   options.services.psst = {
@@ -20,7 +25,7 @@ in
       type = settingsFormat.type;
       default = { };
       description = ''
-        psst configuration, serialized to TOML and passed as the config file.
+        psst configuration, serialized to toml at the default config path.
       '';
       example = lib.literalExpression ''
         {
@@ -41,6 +46,9 @@ in
   config = lib.mkIf cfg.enable (lib.mkMerge [
     {
       home.packages = [ cfg.package ];
+
+      # place config at the default path psst looks for
+      home.file."${configDir}/config.toml".source = configFile;
     }
 
     # macos: .app bundle symlink + launchd agent
@@ -54,7 +62,6 @@ in
           Label = "com.csutora.psst";
           ProgramArguments = [
             "${cfg.package}/Applications/psst.app/Contents/MacOS/psst"
-            "--config" "${configFile}"
             "daemon"
           ];
           RunAtLoad = true;
@@ -78,7 +85,7 @@ in
         };
         Service = {
           Type = "simple";
-          ExecStart = "${cfg.package}/bin/psst --config ${configFile} daemon";
+          ExecStart = "${cfg.package}/bin/psst daemon";
           Restart = "on-failure";
           RestartSec = 10;
         };

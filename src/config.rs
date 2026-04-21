@@ -256,3 +256,99 @@ impl Config {
             .unwrap_or_else(|| PathBuf::from("."))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_has_sane_values() {
+        let c = Config::default();
+        assert!(c.notifications.enabled);
+        assert_eq!(c.notifications.messages_one_to_one, NotifyLevel::Noisy);
+        assert_eq!(c.notifications.messages_group, NotifyLevel::Silent);
+        assert!(!c.notifications.dms_only);
+        assert!(c.behavior.show_message_body);
+        assert_eq!(c.behavior.max_body_length, 300);
+        assert!(!c.behavior.quiet_hours.enabled);
+    }
+
+    #[test]
+    fn parse_minimal_toml() {
+        let toml = "";
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.notifications.enabled);
+    }
+
+    #[test]
+    fn parse_partial_toml() {
+        let toml = r#"
+            [notifications]
+            enabled = false
+            dms_only = true
+            messages_group = "noisy"
+        "#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(!config.notifications.enabled);
+        assert!(config.notifications.dms_only);
+        assert_eq!(config.notifications.messages_group, NotifyLevel::Noisy);
+        // unset fields keep defaults
+        assert_eq!(config.notifications.messages_one_to_one, NotifyLevel::Noisy);
+    }
+
+    #[test]
+    fn parse_room_overrides() {
+        let toml = r#"
+            [notifications.rooms]
+            "!abc:example.com" = "mute"
+            "!def:example.com" = "mentions_only"
+        "#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(
+            config.notifications.rooms.get("!abc:example.com"),
+            Some(&RoomNotifyLevel::Mute)
+        );
+        assert_eq!(
+            config.notifications.rooms.get("!def:example.com"),
+            Some(&RoomNotifyLevel::MentionsOnly)
+        );
+    }
+
+    #[test]
+    fn parse_sender_filters() {
+        let toml = r#"
+            [notifications.senders]
+            always = ["@vip:example.com"]
+            never = ["@bot:example.com"]
+        "#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.notifications.senders.always, vec!["@vip:example.com"]);
+        assert_eq!(config.notifications.senders.never, vec!["@bot:example.com"]);
+    }
+
+    #[test]
+    fn parse_quiet_hours() {
+        let toml = r#"
+            [behavior.quiet_hours]
+            enabled = true
+            start = "22:00"
+            end = "08:00"
+        "#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.behavior.quiet_hours.enabled);
+        assert_eq!(config.behavior.quiet_hours.start, "22:00");
+        assert_eq!(config.behavior.quiet_hours.end, "08:00");
+    }
+
+    #[test]
+    fn load_missing_file_returns_defaults() {
+        let config = Config::load(Path::new("/nonexistent/path/config.toml")).unwrap();
+        assert!(config.notifications.enabled);
+    }
+
+    #[test]
+    fn parse_invalid_toml_fails() {
+        let toml = "this is not valid toml {{{}}}";
+        assert!(toml::from_str::<Config>(toml).is_err());
+    }
+}

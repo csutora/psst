@@ -3,6 +3,7 @@ use matrix_sdk::ruma::events::room::message::MessageType;
 use crate::config::{Config, NotifyLevel, RoomNotifyLevel};
 
 /// result of evaluating the filter pipeline
+#[derive(Debug, PartialEq)]
 pub enum FilterResult {
     /// send a notification
     Notify { sound: bool },
@@ -162,3 +163,173 @@ fn truncate(s: &str, max_chars: usize) -> String {
         format!("{}...", &s[..end])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+
+    fn now_ts() -> i64 {
+        chrono::Utc::now().timestamp()
+    }
+
+    fn ctx() -> EventContext {
+        EventContext {
+            sender: "@alice:example.com".into(),
+            room_id: "!room:example.com".into(),
+            is_direct: true,
+            is_encrypted: false,
+            is_edit: false,
+            push_notify: true,
+            push_highlight: false,
+            event_ts_secs: now_ts(),
+        }
+    }
+
+    // --- filter pipeline ---
+
+    #[test]
+    fn default_config_notifies_on_direct_message() {
+        let result = evaluate(&ctx(), &Config::default());
+        assert_eq!(result, FilterResult::Notify { sound: true });
+    }
+
+    #[test]
+    fn default_config_silent_on_group_message() {
+        let c = EventContext { is_direct: false, ..ctx() };
+        let result = evaluate(&c, &Config::default());
+        assert_eq!(result, FilterResult::Notify { sound: false });
+    }
+
+    #[test]
+    fn suppresses_edits() {
+        let c = EventContext { is_edit: true, ..ctx() };
+        assert_eq!(evaluate(&c, &Config::default()), FilterResult::Suppress);
+    }
+
+    #[test]
+    fn suppresses_when_disabled() {
+        let mut config = Config::default();
+        config.notifications.enabled = false;
+        assert_eq!(evaluate(&ctx(), &config), FilterResult::Suppress);
+    }
+
+    #[test]
+    fn suppresses_sender_never() {
+        let mut config = Config::default();
+        config.notifications.senders.never.push("@alice:example.com".into());
+        assert_eq!(evaluate(&ctx(), &config), FilterResult::Suppress);
+    }
+
+    #[test]
+    fn sender_always_overrides_other_filters() {
+        let mut config = Config::default();
+        config.notifications.dms_only = true;
+        config.notifications.senders.always.push("@alice:example.com".into());
+        let c = EventContext { is_direct: false, ..ctx() };
+        assert_eq!(evaluate(&c, &config), FilterResult::Notify { sound: true });
+    }
+
+    #[test]
+    fn room_mute_suppresses() {
+        let mut config = Config::default();
+        config.notifications.rooms.insert(
+            "!room:example.com".into(),
+            RoomNotifyLevel::Mute,
+        );
+        assert_eq!(evaluate(&ctx(), &config), FilterResult::Suppress);
+    }
+
+    #[test]
+    fn room_mentions_only_suppresses_without_highlight() {
+        let mut config = Config::default();
+        config.notifications.rooms.insert(
+            "!room:example.com".into(),
+            RoomNotifyLevel::MentionsOnly,
+        );
+        assert_eq!(evaluate(&ctx(), &config), FilterResult::Suppress);
+    }
+
+    #[test]
+    fn room_mentions_only_notifies_with_highlight() {
+        let mut config = Config::default();
+        config.notifications.rooms.insert(
+            "!room:example.com".into(),
+            RoomNotifyLevel::MentionsOnly,
+        );
+        let c = EventContext { push_highlight: true, ..ctx() };
+        assert_eq!(evaluate(&c, &config), FilterResult::Notify { sound: true });
+    }
+
+    #[test]
+    fn dms_only_suppresses_group() {
+        let mut config = Config::default();
+        config.notifications.dms_only = true;
+        let c = EventContext { is_direct: false, ..ctx() };
+        assert_eq!(evaluate(&c, &config), FilterResult::Suppress);
+    }
+
+    #[test]
+    fn dms_only_allows_direct() {
+        let mut config = Config::default();
+        config.notifications.dms_only = true;
+        let result = evaluate(&ctx(), &config);
+        assert_eq!(result, FilterResult::Notify { sound: true });
+    }
+
+    #[test]
+    fn encrypted_bypasses_push_notify_check() {
+        let c = EventContext {
+            is_encrypted: true,
+            push_notify: false,
+            ..ctx()
+        };
+        let result = evaluate(&c, &Config::default());
+        assert_eq!(result, FilterResult::Notify { sound: true });
+    }
+
+    #[test]
+    fn unencrypted_without_push_notify_suppresses() {
+        let c = EventContext { push_notify: false, ..ctx() };
+        assert_eq!(evaluate(&c, &Config::default()), FilterResult::Suppress);
+    }
+
+    #[test]
+    fn old_event_suppresses() {
+        let c = EventContext {
+            event_ts_secs: now_ts() - 3600,
+            ..ctx()
+        };
+        assert_eq!(evaluate(&c, &Config::default()), FilterResult::Suppress);
+    }
+
+    #[test]
+    fn highlight_produces_sound() {
+        let mut config = Config::default();
+        config.notifications.messages_group = NotifyLevel::Silent;
+        let c = EventContext {
+            is_direct: false,
+            push_highlight: true,
+            ..ctx()
+        };
+        assert_eq!(evaluate(&c, &config), FilterResult::Notify { sound: true });
+    }
+
+    // --- truncation ---
+
+    #[test]
+    fn truncate_short_string_unchanged() {
+        assert_eq!(truncate("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_long_string() {
+        assert_eq!(truncate("hello world", 5), "hello...");
+    }
+
+    #[test]
+    fn truncate_multibyte() {
+        assert_eq!(truncate("aeiou", 3), "aei...");
+    }
+}
+
