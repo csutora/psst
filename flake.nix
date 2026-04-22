@@ -105,8 +105,9 @@
           ];
 
           shellHook = ''
-            if security export-smartcard 2>/dev/null | grep -q "Developer Signing"; then
-              export CODESIGN_IDENTITY="Developer Signing"
+            IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | awk '/Apple Development/ {print $2; exit}')
+            if [ -n "$IDENTITY" ]; then
+              export CODESIGN_IDENTITY="$IDENTITY"
             fi
             export PATH="$PWD/target/release:$PATH"
           '';

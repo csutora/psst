@@ -8,7 +8,7 @@ ACTOOL := /Applications/Xcode.app/Contents/Developer/usr/bin/actool
 release:
 	@if [ -z "$$CODESIGN_IDENTITY" ]; then \
 		echo "error: CODESIGN_IDENTITY not set - release builds require signing"; \
-		echo "hint: plug in YubiKey and enter the devShell (direnv allow)"; \
+		echo "hint: enter the devShell (direnv allow) to auto-detect your Apple Development cert"; \
 		exit 1; \
 	fi
 	@printf "current version: $(CURRENT_VERSION)\nnew version: "; \
