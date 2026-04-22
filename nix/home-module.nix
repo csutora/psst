@@ -62,6 +62,7 @@ in
           Label = "com.csutora.psst";
           ProgramArguments = [
             "${cfg.package}/Applications/psst.app/Contents/MacOS/psst"
+            "--verbose"
             "daemon"
           ];
           RunAtLoad = true;
@@ -85,7 +86,7 @@ in
         };
         Service = {
           Type = "simple";
-          ExecStart = "${cfg.package}/bin/psst daemon";
+          ExecStart = "${cfg.package}/bin/psst --verbose daemon";
           Restart = "on-failure";
           RestartSec = 10;
         };

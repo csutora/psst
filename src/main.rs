@@ -28,6 +28,10 @@ struct Cli {
     #[arg(short, long, global = true)]
     data_dir: Option<PathBuf>,
 
+    /// show info-level logs from all crates
+    #[arg(short, long, global = true)]
+    verbose: bool,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -78,13 +82,7 @@ enum Command {
 }
 
 fn init_tracing(log_file: Option<&PathBuf>, verbose: bool) {
-    let default_filter = if verbose {
-        // daemon/log-file mode: show info from everything
-        "info"
-    } else {
-        // interactive mode: only show psst's own logs, suppress sdk noise
-        "psst=info,warn"
-    };
+    let default_filter = if verbose { "info" } else { "off" };
     let env_filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
 
@@ -115,12 +113,11 @@ fn init_tracing(log_file: Option<&PathBuf>, verbose: bool) {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // determine log file from daemon subcommand if present
-    let (log_file, verbose) = match &cli.command {
-        Some(Command::Daemon { log_file }) => (log_file.as_ref(), true),
-        _ => (None, false),
+    let log_file = match &cli.command {
+        Some(Command::Daemon { log_file }) => log_file.as_ref(),
+        _ => None,
     };
-    init_tracing(log_file, verbose);
+    init_tracing(log_file, cli.verbose);
 
     let config_path = Config::resolve_config_path(cli.config.as_deref());
     let data_dir = Config::resolve_data_dir(cli.data_dir.as_deref());

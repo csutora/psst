@@ -117,8 +117,6 @@
         psst = self.packages.${prev.stdenv.hostPlatform.system}.psst;
       };
 
-      nixosModules.default = import ./nix/nixos-module.nix self;
-
       homeModules.default = import ./nix/home-module.nix self;
     };
 }
