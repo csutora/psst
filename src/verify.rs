@@ -88,9 +88,9 @@ async fn do_verify(client: &Client) -> anyhow::Result<()> {
                         .await
                         .context("failed to start SAS")?
                         .context("SAS not available")?;
-                    run_sas(sas).await?;
+                    // we initiated SAS; do not call accept, just wait for key exchange
+                    run_sas(sas, false).await?;
 
-                    // after verification, import keys
                     eprintln!();
                     import_keys_inner(client).await?;
                     return Ok(());
@@ -99,7 +99,8 @@ async fn do_verify(client: &Client) -> anyhow::Result<()> {
                     let sas = verification
                         .sas()
                         .context("non-SAS method not supported")?;
-                    run_sas(sas.clone()).await?;
+                    // other side initiated SAS; we accept it
+                    run_sas(sas.clone(), true).await?;
 
                     eprintln!();
                     import_keys_inner(client).await?;
@@ -150,8 +151,11 @@ pub async fn import_keys(data_dir: &Path) -> anyhow::Result<()> {
 }
 
 /// run the sas emoji comparison flow
-async fn run_sas(sas: SasVerification) -> anyhow::Result<()> {
-    sas.accept().await.context("failed to accept SAS")?;
+/// `should_accept` is true only when we received sas from the other side
+async fn run_sas(sas: SasVerification, should_accept: bool) -> anyhow::Result<()> {
+    if should_accept {
+        sas.accept().await.context("failed to accept SAS")?;
+    }
 
     let mut changes = sas.changes();
     while let Some(state) = changes.next().await {
