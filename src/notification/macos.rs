@@ -11,44 +11,63 @@ use super::{Notification, Notifier};
 /// the executable and relaunches via `open`, which registers the app with
 /// the window server and notification system
 pub fn ensure_app_bundle() -> anyhow::Result<()> {
+    use std::path::PathBuf;
+
     // if we're already inside a .app bundle, nothing to do
     let exe = std::env::current_exe().context("failed to get current executable path")?;
     if exe.to_string_lossy().contains(".app/Contents/MacOS/") {
         return Ok(());
     }
 
-    let app_dir = exe.with_extension("app");
-    let contents_dir = app_dir.join("Contents");
-    let macos_dir = contents_dir.join("MacOS");
     let binary_name = exe
         .file_name()
         .context("executable has no file name")?;
+
+    // if home-manager or a prior install put a signed .app at ~/Applications/psst.app,
+    // re-exec through that. this preserves notification permissions across rebuilds
+    if let Some(home) = std::env::var_os("HOME") {
+        let user_app = PathBuf::from(home).join("Applications").join("psst.app");
+        let bundled_bin = user_app.join("Contents/MacOS").join(binary_name);
+        if bundled_bin.exists() {
+            let status = std::process::Command::new("open")
+                .arg(&user_app)
+                .arg("--args")
+                .args(std::env::args().skip(1))
+                .status()
+                .context("failed to launch app bundle via `open`")?;
+            if !status.success() {
+                anyhow::bail!("failed to launch app bundle (exit code {:?})", status.code());
+            }
+            eprintln!("daemon launched via {}", user_app.display());
+            eprintln!("stop with: pkill -f psst.app");
+            std::process::exit(0);
+        }
+    }
+
+    // fall back to creating a wrapper next to the binary (dev builds, cargo install)
+    let app_dir = exe.with_extension("app");
+    let contents_dir = app_dir.join("Contents");
+    let macos_dir = contents_dir.join("MacOS");
     let link_path = macos_dir.join(binary_name);
 
     std::fs::create_dir_all(&macos_dir)
-        .with_context(|| format!("failed to create {}", macos_dir.display()))?;
+        .with_context(|| format!("failed to create {}. if this is a nix install, ensure the home-manager module is enabled so the signed .app ends up at ~/Applications/psst.app", macos_dir.display()))?;
 
-    // always write info.plist (keeps it in sync)
     let plist_path = contents_dir.join("Info.plist");
     std::fs::write(&plist_path, include_str!("../../Info.plist"))
         .context("failed to write Info.plist into app bundle")?;
 
-    // hard-link the binary into the .app (not symlink, gets resolved)
     if link_path.exists() {
         let _ = std::fs::remove_file(&link_path);
     }
     std::fs::hard_link(&exe, &link_path)
         .with_context(|| format!("failed to link binary into app bundle"))?;
 
-    // ad-hoc codesign so the system treats it as a known app for
-    // notification authorization
     let _ = std::process::Command::new("codesign")
         .args(["--force", "--sign", "-"])
         .arg(&app_dir)
         .output();
 
-    // launch via `open` to get proper app context (window server
-    // registration, notification system access)
     let status = std::process::Command::new("open")
         .arg(&app_dir)
         .arg("--args")

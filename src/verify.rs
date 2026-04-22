@@ -68,7 +68,7 @@ async fn do_verify(client: &Client) -> anyhow::Result<()> {
     // the sdk to cancel concurrent verification flows
     for attempt in 0..3 {
         eprintln!("requesting verification from your other devices...");
-        eprintln!("accept the request on a verified session (e.g., Element).");
+        eprintln!("accept the request on a verified session.");
         eprintln!();
 
         let request = own_identity
@@ -82,24 +82,12 @@ async fn do_verify(client: &Client) -> anyhow::Result<()> {
         while let Some(state) = changes.next().await {
             match state {
                 VerificationRequestState::Ready { .. } => {
-                    eprintln!("request accepted, starting emoji verification...");
-                    let sas = request
-                        .start_sas()
-                        .await
-                        .context("failed to start SAS")?
-                        .context("SAS not available")?;
-                    // we initiated SAS; do not call accept, just wait for key exchange
-                    run_sas(sas, false).await?;
-
-                    eprintln!();
-                    import_keys_inner(client).await?;
-                    return Ok(());
+                    eprintln!("request accepted, waiting for the other device to start emoji comparison...");
                 }
                 VerificationRequestState::Transitioned { verification } => {
                     let sas = verification
                         .sas()
                         .context("non-SAS method not supported")?;
-                    // other side initiated SAS; we accept it
                     run_sas(sas.clone(), true).await?;
 
                     eprintln!();
@@ -243,7 +231,7 @@ async fn import_keys_inner(client: &Client) -> anyhow::Result<()> {
     }
 
     eprintln!("backup key not received via secret sharing.");
-    eprintln!("enter your recovery key (the one from Element's security setup):");
+    eprintln!("enter your recovery key:");
     let key = rpassword::prompt_password("recovery key: ")
         .context("failed to read recovery key")?;
 

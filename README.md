@@ -162,6 +162,9 @@ end = "07:00"
 **encrypted messages not decrypting**
 - run `psst verify` to cross-sign this device and import the key backup
 
+**verification request being accepted without user input**
+- some clients like iamb do this. make sure to close them if you're verifying with another client.
+
 **daemon exits immediately**
 - check the logs at `/tmp/psst.stderr.log` (macos) or `journalctl --user -u psst` (linux)
 - ensure your homeserver supports sliding sync
