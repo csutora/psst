@@ -6,6 +6,8 @@
 	<string>psst</string>
 	<key>CFBundleExecutable</key>
 	<string>psst</string>
+	<key>CFBundleIconFile</key>
+	<string>psst</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.csutora.psst</string>
 	<key>CFBundleName</key>

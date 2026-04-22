@@ -17,9 +17,10 @@ release:
 	/usr/bin/plutil -replace CFBundleShortVersionString -string "$$VERSION" Info.plist; \
 	cargo build --release; \
 	rm -rf dist; \
-	mkdir -p dist/psst.app/Contents/MacOS; \
+	mkdir -p dist/psst.app/Contents/MacOS dist/psst.app/Contents/Resources; \
 	cp target/release/psst dist/psst.app/Contents/MacOS/psst; \
 	cp Info.plist dist/psst.app/Contents/Info.plist; \
+	cp -R psst.icon dist/psst.app/Contents/Resources/psst.icon; \
 	codesign --force --sign "$$CODESIGN_IDENTITY" dist/psst.app; \
 	TARBALL="psst-$$VERSION-aarch64-darwin.tar.gz"; \
 	tar -czf "$$TARBALL" -C dist psst.app; \
