@@ -57,6 +57,21 @@ pub fn ensure_app_bundle() -> anyhow::Result<()> {
     std::fs::write(&plist_path, include_str!("../../Info.plist"))
         .context("failed to write Info.plist into app bundle")?;
 
+    // override bundle id for dev builds so they don't poison the production
+    // notification/icon cache for com.csutora.psst
+    let _ = std::process::Command::new("plutil")
+        .args(["-replace", "CFBundleIdentifier", "-string", "com.csutora.psst.dev"])
+        .arg(&plist_path)
+        .output();
+    let _ = std::process::Command::new("plutil")
+        .args(["-replace", "CFBundleName", "-string", "psst-dev"])
+        .arg(&plist_path)
+        .output();
+    let _ = std::process::Command::new("plutil")
+        .args(["-replace", "CFBundleDisplayName", "-string", "psst-dev"])
+        .arg(&plist_path)
+        .output();
+
     if link_path.exists() {
         let _ = std::fs::remove_file(&link_path);
     }

@@ -540,8 +540,14 @@ pub async fn list_rooms(data_dir: &Path) -> anyhow::Result<()> {
     if rooms.is_empty() {
         println!("no joined rooms.");
     } else {
-        println!("{:<44} {:<6} {}", "ROOM ID", "E2EE", "NAME");
-        println!("{}", "-".repeat(80));
+        let id_width = rooms
+            .iter()
+            .map(|r| r.room_id().as_str().len())
+            .max()
+            .unwrap_or(7)
+            .max(7);
+        println!("{:<id_width$} {:<6} {}", "ROOM ID", "E2EE", "NAME");
+        println!("{}", "-".repeat(id_width + 8 + 20));
         for room in &rooms {
             let name = room
                 .display_name()
@@ -553,7 +559,8 @@ pub async fn list_rooms(data_dir: &Path) -> anyhow::Result<()> {
             } else {
                 "no"
             };
-            println!("{:<44} {:<6} {}", room.room_id(), encrypted, name);
+            let id = room.room_id().as_str();
+            println!("{:<id_width$} {:<6} {}", id, encrypted, name);
         }
         println!();
         println!("{} rooms total", rooms.len());

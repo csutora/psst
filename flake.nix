@@ -109,7 +109,6 @@
             if [ -n "$IDENTITY" ]; then
               export CODESIGN_IDENTITY="$IDENTITY"
             fi
-            export PATH="$PWD/target/release:$PATH"
           '';
         };
       });
