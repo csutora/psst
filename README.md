@@ -125,6 +125,12 @@ edits = "off"
 # only notify for direct messages
 dms_only = false
 
+# sound played for noisy notifications
+# macos: name of a file in /System/Library/Sounds/, no extension, case insensitive
+#        try `ls /System/Library/Sounds` and preview with `afplay /System/Library/Sounds/Tink.aiff`
+# linux: an xdg sound name, e.g. "message-new-instant"
+sound = "Blow"
+
 # example per-room overrides: "all", "mentions_only", "mute"
 [notifications.rooms]
 "!room:example.com" = "mute"

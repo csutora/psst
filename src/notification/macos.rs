@@ -119,8 +119,12 @@ impl Notifier for MacosNotifier {
         content.setBody(&NSString::from_str(&notification.body));
         content.setThreadIdentifier(&NSString::from_str(&notification.thread_id));
 
-        if notification.sound {
-            content.setSound(Some(&UNNotificationSound::defaultSound()));
+        if let Some(name) = &notification.sound {
+            // titlecase so "blow"/"BLOW"/"Blow" all work
+            let titled = titlecase(name);
+            let aiff = format!("{titled}.aiff");
+            let sound = UNNotificationSound::soundNamed(&NSString::from_str(&aiff));
+            content.setSound(Some(&sound));
         }
 
         // identifier = tag, so re-posting with the same tag replaces the notification
@@ -147,5 +151,16 @@ impl Notifier for MacosNotifier {
 
         tracing::debug!(tag, "notification dismissed");
         Ok(())
+    }
+}
+
+fn titlecase(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) => {
+            let rest: String = chars.as_str().to_lowercase();
+            c.to_ascii_uppercase().to_string() + rest.as_str()
+        }
+        None => String::new(),
     }
 }

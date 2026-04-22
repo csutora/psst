@@ -84,6 +84,11 @@ pub struct NotificationConfig {
     #[serde(default)]
     pub dms_only: bool,
 
+    /// sound to play for noisy notifications
+    /// macos: name of a file in /System/Library/Sounds/ (case insensitive, no extension)
+    /// linux: an xdg sound name (e.g. "message-new-instant")
+    pub sound: String,
+
     /// per-room notification overrides, keyed by room id
     #[serde(default)]
     pub rooms: HashMap<String, RoomNotifyLevel>,
@@ -113,9 +118,18 @@ impl Default for NotificationConfig {
             mentions_keywords: NotifyLevel::Noisy,
             keywords: Vec::new(),
             dms_only: false,
+            sound: default_sound(),
             rooms: HashMap::new(),
             senders: SenderFilters::default(),
         }
+    }
+}
+
+fn default_sound() -> String {
+    if cfg!(target_os = "macos") {
+        "Blow".to_string()
+    } else {
+        "message-new-instant".to_string()
     }
 }
 

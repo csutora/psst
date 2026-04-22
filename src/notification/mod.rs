@@ -13,8 +13,10 @@ pub struct Notification {
     pub subtitle: Option<String>,
     /// message body
     pub body: String,
-    /// whether to play a sound
-    pub sound: bool,
+    /// sound name to play, or None for silent
+    /// on macos this maps to a sound in /System/Library/Sounds/ (e.g. "Blow")
+    /// on linux it's an xdg sound name (e.g. "message-new-instant")
+    pub sound: Option<String>,
     /// thread identifier for grouping (usually room_id)
     pub thread_id: String,
 }
@@ -47,13 +49,15 @@ pub fn create_notifier() -> anyhow::Result<Box<dyn Notifier>> {
 pub async fn test() -> anyhow::Result<()> {
     let notifier = create_notifier()?;
 
+    let sound_name = if cfg!(target_os = "macos") { "Blow" } else { "message-new-instant" };
+
     eprintln!("sending silent test notification...");
     notifier.send(&Notification {
         tag: "psst-test-silent".to_string(),
         title: "psst".to_string(),
         subtitle: None,
         body: "silent test notification".to_string(),
-        sound: false,
+        sound: None,
         thread_id: "psst-test".to_string(),
     })?;
 
@@ -65,7 +69,7 @@ pub async fn test() -> anyhow::Result<()> {
         title: "psst".to_string(),
         subtitle: None,
         body: "noisy test notification".to_string(),
-        sound: true,
+        sound: Some(sound_name.to_string()),
         thread_id: "psst-test".to_string(),
     })?;
 

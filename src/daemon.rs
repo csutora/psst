@@ -320,7 +320,7 @@ async fn handle_message(
         "received message"
     );
 
-    let sound = match filters::evaluate(&ctx, config) {
+    let play_sound = match filters::evaluate(&ctx, config) {
         FilterResult::Notify { sound } => sound,
         FilterResult::Suppress => {
             tracing::debug!(
@@ -330,6 +330,11 @@ async fn handle_message(
             );
             return;
         }
+    };
+    let sound = if play_sound {
+        Some(config.notifications.sound.clone())
+    } else {
+        None
     };
 
     // build notification

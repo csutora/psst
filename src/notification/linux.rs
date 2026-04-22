@@ -23,8 +23,8 @@ impl Notifier for LinuxNotifier {
         n.summary(&notification.title);
         n.body(&notification.body);
 
-        if notification.sound {
-            n.sound_name("message-new-instant");
+        if let Some(name) = &notification.sound {
+            n.sound_name(name);
         }
 
         // reuse existing id to replace an active notification for the same room
