@@ -15,12 +15,12 @@
       forLinux = f: nixpkgs.lib.genAttrs linuxSystems (system: f nixpkgs.legacyPackages.${system});
       forAll = f: nixpkgs.lib.genAttrs allSystems (system: f nixpkgs.legacyPackages.${system});
 
-      version = "0.1.4";
+      version = "0.1.5";
 
       # darwin: fetch pre-built signed binary from github releases
       # update hash after `make dist && gh release create`
       darwinUrl = "https://github.com/csutora/psst/releases/download/v${version}/psst-${version}-aarch64-darwin.tar.gz";
-      darwinHash = "sha256-nJfqOG5AttGX7+Tkgz4lXZKNWjsqT7KHEm7/9POiwSc=";
+      darwinHash = "sha256-fx3WHADWDZP18J0WeHc6EROXUSwLgGSL13slSoAGXMc=";
 
       mkDarwin = pkgs: pkgs.stdenv.mkDerivation {
         pname = "psst";
