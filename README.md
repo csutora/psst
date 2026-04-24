@@ -1,8 +1,7 @@
 # psst
 
-a matrix notification daemon. it syncs your rooms via sliding sync, evaluates
-push rules and local filters, fires native desktop notifications, and dismisses
-them when read on another client. intended to be used with clients like [iamb](https://iamb.chat).
+a matrix notification daemon.\
+intended to be used with clients like [iamb](https://iamb.chat).
 
 ## features
 
@@ -15,7 +14,8 @@ them when read on another client. intended to be used with clients like [iamb](h
 
 ## requirements
 
-- a matrix homeserver with sliding sync support (synapse 1.98+, conduit, etc)
+- a matrix homeserver with sliding sync support (synapse, continuwuity, etc)
+- a nix setup with home-manager
 - linux: systemd, dbus, a notification daemon
 - macos: none
 
@@ -102,43 +102,67 @@ psst daemon
 
 ## configuration
 
-psst looks for `config.toml` at:
+this is handled by home-manager, but psst looks for `config.toml` at:
 - macos: `~/Library/Application Support/com.csutora.psst/config.toml`
 - linux: `~/.config/psst/config.toml`
 
-if the file doesn't exist, the following defaults are used:
+if the file doesn't exist, the defaults below are used:
 
 ```toml
 [notifications]
 enabled = true
 
-# per-type levels: "off", "silent", "noisy"
-messages_one_to_one = "noisy"
-messages_group = "silent"
-encrypted_one_to_one = "noisy"
-encrypted_group = "silent"
-invites = "noisy"
-calls = "noisy"
-reactions = "off"
-edits = "off"
-
-# only notify for direct messages
-dms_only = false
-
 # sound played for noisy notifications
-# macos: name of a file in /System/Library/Sounds/, no extension, case insensitive
-#        try `ls /System/Library/Sounds` and preview with `afplay /System/Library/Sounds/Tink.aiff`
+# macos: name of a sound in /System/Library/Sounds/
 # linux: an xdg sound name, e.g. "message-new-instant"
 sound = "Blow"
 
-# example per-room overrides: "all", "mentions_only", "mute"
-[notifications.rooms]
-"!room:example.com" = "mute"
+# room invites
+invites = "noisy"
 
-# example sender filters
+[notifications.dms]
+# "off" / "silent" / "noisy"
+unencrypted = "noisy"
+encrypted = "noisy"
+mentions_you = "noisy"
+mentions_room = "noisy"
+keyword_match = "noisy"
+calls = "noisy"
+reactions = "noisy"
+
+# "off" / "silent" / "noisy" / "replace" (replaces existing notification)
+edits = "replace"
+
+# silence notifications that arrive within this many seconds of the previous one in the same room
+noisy_debounce_seconds = 0
+
+# case insensitive substring match on message body
+keywords = []
+
+[notifications.rooms]
+unencrypted = "silent"
+encrypted = "silent"
+mentions_you = "noisy"
+mentions_room = "silent"
+keyword_match = "noisy"
+calls = "noisy"
+reactions = "silent"
+edits = "replace"
+noisy_debounce_seconds = 0
+keywords = []
+
+# per-room override examples
+# any field above can be set per-room
+# get the room id with 'psst list-rooms'
+[notifications.rooms."!noisy_room:example.com"]
+mute = true # shortcut to turn everything off
+
+# sender-based override examples
+# noisy / silent / off: bypass per-room rules and force this noise level for the sender
 [notifications.senders]
-always = ["@vip:example.com"]
-never = ["@bot:example.com"]
+noisy = ["@vip:example.com"]
+silent = ["@neutral:example.com"]
+off = ["@bot:example.com"]
 
 [behavior]
 show_message_body = true
@@ -163,7 +187,7 @@ end = "07:00"
 - run `psst verify` to cross-sign this device and import the key backup
 
 **verification request being accepted without user input**
-- some clients like iamb do this. make sure to close them if you're verifying with another client.
+- some clients like iamb do this. make sure to close them if you're verifying with another client
 
 **daemon exits immediately**
 - check the logs at `/tmp/psst.stderr.log` (macos) or `journalctl --user -u psst` (linux)

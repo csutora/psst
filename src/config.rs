@@ -4,97 +4,282 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use serde::Deserialize;
 
-/// notification level for event type filters
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NotifyLevel {
-    /// suppress entirely on this device
+    #[default]
     Off,
-    /// notification without sound
     Silent,
-    /// notification with sound
     Noisy,
 }
 
-impl Default for NotifyLevel {
-    fn default() -> Self {
-        Self::Off
-    }
-}
-
-/// per-room notification override
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RoomNotifyLevel {
-    /// notify for all messages
-    All,
-    /// only notify for mentions and keywords
-    MentionsOnly,
-    /// suppress all notifications
-    Mute,
-}
-
-/// root configuration
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct Config {
-    pub notifications: NotificationConfig,
-    pub behavior: BehaviorConfig,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            notifications: NotificationConfig::default(),
-            behavior: BehaviorConfig::default(),
+impl NotifyLevel {
+    pub fn loudest(self, other: Self) -> Self {
+        use NotifyLevel::*;
+        match (self, other) {
+            (Noisy, _) | (_, Noisy) => Noisy,
+            (Silent, _) | (_, Silent) => Silent,
+            _ => Off,
         }
     }
 }
 
-/// notification filter settings
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct NotificationConfig {
-    /// global enable/disable for this device
-    pub enabled: bool,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EditMode {
+    Off,
+    Silent,
+    Noisy,
+    #[default]
+    Replace,
+}
 
-    // === event type filters ===
-    pub messages_one_to_one: NotifyLevel,
-    pub messages_group: NotifyLevel,
-    pub encrypted_one_to_one: NotifyLevel,
-    pub encrypted_group: NotifyLevel,
-    pub invites: NotifyLevel,
-    pub membership_changes: NotifyLevel,
-    pub room_upgrades: NotifyLevel,
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RoomConfig {
+    pub unencrypted: NotifyLevel,
+    pub encrypted: NotifyLevel,
+    pub mentions_you: NotifyLevel,
+    pub mentions_room: NotifyLevel,
+    pub keyword_match: NotifyLevel,
     pub calls: NotifyLevel,
     pub reactions: NotifyLevel,
-    pub edits: NotifyLevel,
-
-    // === mention & keyword behavior ===
-    pub mentions_user: NotifyLevel,
-    pub mentions_room: NotifyLevel,
-    pub mentions_display_name: NotifyLevel,
-    pub mentions_keywords: NotifyLevel,
-
-    /// custom keywords to watch for (evaluated locally on decrypted content)
-    #[serde(default)]
+    pub edits: EditMode,
+    pub noisy_debounce_seconds: u64,
     pub keywords: Vec<String>,
+}
 
-    /// if true, ignore all group chat notifications
-    #[serde(default)]
-    pub dms_only: bool,
+impl RoomConfig {
+    pub fn default_dms() -> Self {
+        Self {
+            unencrypted: NotifyLevel::Noisy,
+            encrypted: NotifyLevel::Noisy,
+            mentions_you: NotifyLevel::Noisy,
+            mentions_room: NotifyLevel::Noisy,
+            keyword_match: NotifyLevel::Noisy,
+            calls: NotifyLevel::Noisy,
+            reactions: NotifyLevel::Noisy,
+            edits: EditMode::Replace,
+            noisy_debounce_seconds: 0,
+            keywords: Vec::new(),
+        }
+    }
 
-    /// sound to play for noisy notifications
-    /// macos: name of a file in /System/Library/Sounds/ (case insensitive, no extension)
-    /// linux: an xdg sound name (e.g. "message-new-instant")
+    pub fn default_rooms() -> Self {
+        Self {
+            unencrypted: NotifyLevel::Silent,
+            encrypted: NotifyLevel::Silent,
+            mentions_you: NotifyLevel::Noisy,
+            mentions_room: NotifyLevel::Silent,
+            keyword_match: NotifyLevel::Noisy,
+            calls: NotifyLevel::Noisy,
+            reactions: NotifyLevel::Silent,
+            edits: EditMode::Replace,
+            noisy_debounce_seconds: 0,
+            keywords: Vec::new(),
+        }
+    }
+
+    fn muted() -> Self {
+        Self {
+            unencrypted: NotifyLevel::Off,
+            encrypted: NotifyLevel::Off,
+            mentions_you: NotifyLevel::Off,
+            mentions_room: NotifyLevel::Off,
+            keyword_match: NotifyLevel::Off,
+            calls: NotifyLevel::Off,
+            reactions: NotifyLevel::Off,
+            edits: EditMode::Off,
+            noisy_debounce_seconds: 0,
+            keywords: Vec::new(),
+        }
+    }
+}
+
+impl Default for RoomConfig {
+    fn default() -> Self {
+        Self::default_rooms()
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RoomOverride {
+    pub mute: bool,
+    pub unencrypted: Option<NotifyLevel>,
+    pub encrypted: Option<NotifyLevel>,
+    pub mentions_you: Option<NotifyLevel>,
+    pub mentions_room: Option<NotifyLevel>,
+    pub keyword_match: Option<NotifyLevel>,
+    pub calls: Option<NotifyLevel>,
+    pub reactions: Option<NotifyLevel>,
+    pub edits: Option<EditMode>,
+    pub noisy_debounce_seconds: Option<u64>,
+    pub keywords: Option<Vec<String>>,
+}
+
+impl RoomOverride {
+    fn apply_to(&self, mut base: RoomConfig) -> RoomConfig {
+        if self.mute {
+            return RoomConfig::muted();
+        }
+        if let Some(v) = self.unencrypted {
+            base.unencrypted = v;
+        }
+        if let Some(v) = self.encrypted {
+            base.encrypted = v;
+        }
+        if let Some(v) = self.mentions_you {
+            base.mentions_you = v;
+        }
+        if let Some(v) = self.mentions_room {
+            base.mentions_room = v;
+        }
+        if let Some(v) = self.keyword_match {
+            base.keyword_match = v;
+        }
+        if let Some(v) = self.calls {
+            base.calls = v;
+        }
+        if let Some(v) = self.reactions {
+            base.reactions = v;
+        }
+        if let Some(v) = self.edits {
+            base.edits = v;
+        }
+        if let Some(v) = self.noisy_debounce_seconds {
+            base.noisy_debounce_seconds = v;
+        }
+        if let Some(v) = self.keywords.clone() {
+            base.keywords = v;
+        }
+        base
+    }
+}
+
+/// rooms section. raw deserialization captures unknown keys (overrides + typos).
+/// after parsing, we walk extras: keys starting with `!` become overrides, others log a warning.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct RawRoomsSection {
+    #[serde(flatten)]
+    pub extras: HashMap<String, toml::Value>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RoomsSection {
+    pub defaults: RoomConfig,
+    pub overrides: HashMap<String, RoomOverride>,
+}
+
+impl RoomsSection {
+    fn from_raw(raw: RawRoomsSection, default: RoomConfig, label: &str) -> Self {
+        // partition extras into known fields vs override candidates
+        let mut defaults_table = toml::Table::new();
+        let mut override_candidates: Vec<(String, toml::Value)> = Vec::new();
+
+        let known_fields: &[&str] = &[
+            "unencrypted",
+            "encrypted",
+            "mentions_you",
+            "mentions_room",
+            "keyword_match",
+            "calls",
+            "reactions",
+            "edits",
+            "noisy_debounce_seconds",
+            "keywords",
+        ];
+
+        for (key, value) in raw.extras {
+            if known_fields.contains(&key.as_str()) {
+                defaults_table.insert(key, value);
+            } else if key.starts_with('!') {
+                override_candidates.push((key, value));
+            } else {
+                tracing::warn!(
+                    "ignoring unknown field `{key}` in [notifications.{label}] (room overrides must start with `!`)"
+                );
+            }
+        }
+
+        let defaults: RoomConfig = match toml::Value::Table(defaults_table).try_into() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(
+                    "ignoring invalid defaults in [notifications.{label}]: {e}. using defaults."
+                );
+                default.clone()
+            }
+        };
+
+        let mut overrides: HashMap<String, RoomOverride> = HashMap::new();
+        for (key, value) in override_candidates {
+            match value.try_into::<RoomOverride>() {
+                Ok(ov) => {
+                    overrides.insert(key, ov);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "ignoring invalid override [notifications.{label}.\"{key}\"]: {e}"
+                    );
+                }
+            }
+        }
+
+        Self { defaults, overrides }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SenderFilters {
+    pub noisy: Vec<String>,
+    pub silent: Vec<String>,
+    pub off: Vec<String>,
+}
+
+impl SenderFilters {
+    /// is this sender in any of the noisy/silent/off lists?
+    /// used to bypass per-room debounce/quiet-hours for explicitly-listed senders.
+    pub fn contains(&self, sender: &str) -> bool {
+        self.noisy.iter().any(|x| x == sender)
+            || self.silent.iter().any(|x| x == sender)
+            || self.off.iter().any(|x| x == sender)
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct RawNotificationConfig {
+    pub enabled: bool,
     pub sound: String,
+    pub invites: NotifyLevel,
+    pub dms: RoomOverride,
+    pub rooms: RawRoomsSection,
+    pub senders: SenderFilters,
+}
 
-    /// per-room notification overrides, keyed by room id
-    #[serde(default)]
-    pub rooms: HashMap<String, RoomNotifyLevel>,
+impl Default for RawNotificationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sound: default_sound(),
+            invites: NotifyLevel::Noisy,
+            dms: RoomOverride::default(),
+            rooms: RawRoomsSection::default(),
+            senders: SenderFilters::default(),
+        }
+    }
+}
 
-    /// sender filters
-    #[serde(default)]
+#[derive(Debug, Clone)]
+pub struct NotificationConfig {
+    pub enabled: bool,
+    pub sound: String,
+    pub invites: NotifyLevel,
+    pub dms: RoomConfig,
+    pub rooms: RoomsSection,
     pub senders: SenderFilters,
 }
 
@@ -102,25 +287,26 @@ impl Default for NotificationConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            messages_one_to_one: NotifyLevel::Noisy,
-            messages_group: NotifyLevel::Silent,
-            encrypted_one_to_one: NotifyLevel::Noisy,
-            encrypted_group: NotifyLevel::Silent,
-            invites: NotifyLevel::Noisy,
-            membership_changes: NotifyLevel::Off,
-            room_upgrades: NotifyLevel::Silent,
-            calls: NotifyLevel::Noisy,
-            reactions: NotifyLevel::Off,
-            edits: NotifyLevel::Off,
-            mentions_user: NotifyLevel::Noisy,
-            mentions_room: NotifyLevel::Silent,
-            mentions_display_name: NotifyLevel::Noisy,
-            mentions_keywords: NotifyLevel::Noisy,
-            keywords: Vec::new(),
-            dms_only: false,
             sound: default_sound(),
-            rooms: HashMap::new(),
+            invites: NotifyLevel::Noisy,
+            dms: RoomConfig::default_dms(),
+            rooms: RoomsSection::default(),
             senders: SenderFilters::default(),
+        }
+    }
+}
+
+impl NotificationConfig {
+    /// resolve the effective room config for a given room, applying any per-room override
+    pub fn effective_for(&self, room_id: &str, is_direct: bool) -> RoomConfig {
+        let base = if is_direct {
+            self.dms.clone()
+        } else {
+            self.rooms.defaults.clone()
+        };
+        match self.rooms.overrides.get(room_id) {
+            Some(ov) => ov.apply_to(base),
+            None => base,
         }
     }
 }
@@ -133,73 +319,32 @@ fn default_sound() -> String {
     }
 }
 
-/// sender-based notification filters
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default)]
-pub struct SenderFilters {
-    /// always notify for these senders (mxids)
-    pub always: Vec<String>,
-    /// never notify for these senders (mxids)
-    pub never: Vec<String>,
-}
-
-/// behavior tuning settings
 #[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct BehaviorConfig {
-    /// suppress notifications for events older than this (seconds)
-    pub max_event_age_secs: u64,
-
-    /// suppress notifications if another session has shown a read receipt
-    /// within this window (seconds)
-    pub read_receipt_grace_period_secs: u64,
-
-    /// show message body in notification
     pub show_message_body: bool,
-
-    /// show reply context (e.g., "alice (to bob): ...")
-    pub show_reply_context: bool,
-
-    /// truncate message body to this many characters
     pub max_body_length: usize,
-
-    /// group multiple messages from the same room into a single notification
-    pub collapse_room_notifications: bool,
-
-    /// command to run when a notification is clicked
-    /// placeholders: {room_id}, {event_id}, {sender}
-    pub on_click_command: Option<String>,
-
-    /// quiet hours configuration
-    #[serde(default)]
+    pub max_event_age_secs: u64,
     pub quiet_hours: QuietHoursConfig,
 }
 
 impl Default for BehaviorConfig {
     fn default() -> Self {
         Self {
-            max_event_age_secs: 60,
-            read_receipt_grace_period_secs: 5,
             show_message_body: true,
-            show_reply_context: true,
             max_body_length: 300,
-            collapse_room_notifications: true,
-            on_click_command: None,
+            max_event_age_secs: 60,
             quiet_hours: QuietHoursConfig::default(),
         }
     }
 }
 
-/// quiet hours (built-in do-not-disturb schedule)
 #[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct QuietHoursConfig {
     pub enabled: bool,
-    /// start time in 24h format (e.g., "23:00")
     pub start: String,
-    /// end time in 24h format (e.g., "07:00")
     pub end: String,
-    /// iana timezone string, or "local" for system timezone
     pub timezone: String,
 }
 
@@ -214,47 +359,74 @@ impl Default for QuietHoursConfig {
     }
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+struct RawConfig {
+    pub notifications: RawNotificationConfig,
+    pub behavior: BehaviorConfig,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Config {
+    pub notifications: NotificationConfig,
+    pub behavior: BehaviorConfig,
+}
+
 impl Config {
     /// load config from a toml file, returns default config if it doesn't exist
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         if !path.exists() {
-            tracing::info!(?path, "Config file not found, using defaults");
+            tracing::info!(?path, "config file not found, using defaults");
             return Ok(Self::default());
         }
 
         let content = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read config file: {}", path.display()))?;
+            .with_context(|| format!("failed to read config file: {}", path.display()))?;
 
-        let config: Config = toml::from_str(&content)
-            .with_context(|| format!("Failed to parse config file: {}", path.display()))?;
+        let de = toml::Deserializer::parse(&content)
+            .with_context(|| format!("failed to parse config file: {}", path.display()))?;
+        let raw: RawConfig = serde_ignored::deserialize(de, |path| {
+            tracing::warn!("ignoring unknown config field `{path}`");
+        })
+        .with_context(|| format!("failed to parse config file: {}", path.display()))?;
 
-        tracing::info!(?path, "Config loaded");
+        let config = Self {
+            notifications: NotificationConfig {
+                enabled: raw.notifications.enabled,
+                sound: raw.notifications.sound,
+                invites: raw.notifications.invites,
+                dms: raw.notifications.dms.apply_to(RoomConfig::default_dms()),
+                rooms: RoomsSection::from_raw(
+                    raw.notifications.rooms,
+                    RoomConfig::default_rooms(),
+                    "rooms",
+                ),
+                senders: raw.notifications.senders,
+            },
+            behavior: raw.behavior,
+        };
+
+        tracing::info!(?path, "config loaded");
         Ok(config)
     }
 
-    /// resolve the config file path from cli flag, env var, or platform default
     pub fn resolve_config_path(cli_path: Option<&Path>) -> PathBuf {
         if let Some(path) = cli_path {
             return path.to_path_buf();
         }
-
         if let Ok(path) = std::env::var("PSST_CONFIG") {
             return PathBuf::from(path);
         }
-
         Self::default_config_path()
     }
 
-    /// resolve the data directory from cli flag, env var, or platform default
     pub fn resolve_data_dir(cli_path: Option<&Path>) -> PathBuf {
         if let Some(path) = cli_path {
             return path.to_path_buf();
         }
-
         if let Ok(path) = std::env::var("PSST_DATA_DIR") {
             return PathBuf::from(path);
         }
-
         Self::default_data_dir()
     }
 
@@ -275,94 +447,289 @@ impl Config {
 mod tests {
     use super::*;
 
+    fn parse(content: &str) -> Config {
+        let de = toml::Deserializer::parse(content).unwrap();
+        let raw: RawConfig = serde_ignored::deserialize(de, |_| {}).unwrap();
+        Config {
+            notifications: NotificationConfig {
+                enabled: raw.notifications.enabled,
+                sound: raw.notifications.sound,
+                invites: raw.notifications.invites,
+                dms: raw.notifications.dms.apply_to(RoomConfig::default_dms()),
+                rooms: RoomsSection::from_raw(
+                    raw.notifications.rooms,
+                    RoomConfig::default_rooms(),
+                    "rooms",
+                ),
+                senders: raw.notifications.senders,
+            },
+            behavior: raw.behavior,
+        }
+    }
+
     #[test]
-    fn default_config_has_sane_values() {
+    fn defaults_are_sane() {
         let c = Config::default();
         assert!(c.notifications.enabled);
-        assert_eq!(c.notifications.messages_one_to_one, NotifyLevel::Noisy);
-        assert_eq!(c.notifications.messages_group, NotifyLevel::Silent);
-        assert!(!c.notifications.dms_only);
-        assert!(c.behavior.show_message_body);
+        assert_eq!(c.notifications.invites, NotifyLevel::Noisy);
+        assert_eq!(c.notifications.dms.unencrypted, NotifyLevel::Noisy);
+        assert_eq!(c.notifications.rooms.defaults.unencrypted, NotifyLevel::Silent);
         assert_eq!(c.behavior.max_body_length, 300);
-        assert!(!c.behavior.quiet_hours.enabled);
     }
 
     #[test]
-    fn parse_minimal_toml() {
-        let toml = "";
-        let config: Config = toml::from_str(toml).unwrap();
-        assert!(config.notifications.enabled);
+    fn parse_minimal() {
+        let c = parse("");
+        assert!(c.notifications.enabled);
     }
 
     #[test]
-    fn parse_partial_toml() {
-        let toml = r#"
-            [notifications]
-            enabled = false
-            dms_only = true
-            messages_group = "noisy"
-        "#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert!(!config.notifications.enabled);
-        assert!(config.notifications.dms_only);
-        assert_eq!(config.notifications.messages_group, NotifyLevel::Noisy);
-        // unset fields keep defaults
-        assert_eq!(config.notifications.messages_one_to_one, NotifyLevel::Noisy);
-    }
-
-    #[test]
-    fn parse_room_overrides() {
-        let toml = r#"
-            [notifications.rooms]
-            "!abc:example.com" = "mute"
-            "!def:example.com" = "mentions_only"
-        "#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(
-            config.notifications.rooms.get("!abc:example.com"),
-            Some(&RoomNotifyLevel::Mute)
+    fn parse_partial_dms() {
+        let c = parse(
+            r#"
+            [notifications.dms]
+            unencrypted = "off"
+            "#,
         );
-        assert_eq!(
-            config.notifications.rooms.get("!def:example.com"),
-            Some(&RoomNotifyLevel::MentionsOnly)
-        );
+        assert_eq!(c.notifications.dms.unencrypted, NotifyLevel::Off);
+        assert_eq!(c.notifications.dms.encrypted, NotifyLevel::Noisy);
     }
 
     #[test]
-    fn parse_sender_filters() {
-        let toml = r#"
+    fn parse_room_override() {
+        let c = parse(
+            r#"
+            [notifications.rooms."!abc:example.com"]
+            unencrypted = "noisy"
+            edits = "off"
+            "#,
+        );
+        let eff = c.notifications.effective_for("!abc:example.com", false);
+        assert_eq!(eff.unencrypted, NotifyLevel::Noisy);
+        assert_eq!(eff.edits, EditMode::Off);
+        assert_eq!(eff.encrypted, NotifyLevel::Silent);
+    }
+
+    #[test]
+    fn parse_room_mute() {
+        let c = parse(
+            r#"
+            [notifications.rooms."!abc:example.com"]
+            mute = true
+            "#,
+        );
+        let eff = c.notifications.effective_for("!abc:example.com", false);
+        assert_eq!(eff.unencrypted, NotifyLevel::Off);
+        assert_eq!(eff.mentions_you, NotifyLevel::Off);
+        assert_eq!(eff.edits, EditMode::Off);
+    }
+
+    #[test]
+    fn dm_uses_dm_defaults_with_override() {
+        let c = parse(
+            r#"
+            [notifications.rooms."!dm:example.com"]
+            edits = "off"
+            "#,
+        );
+        let eff = c.notifications.effective_for("!dm:example.com", true);
+        // dm defaults
+        assert_eq!(eff.unencrypted, NotifyLevel::Noisy);
+        // overridden
+        assert_eq!(eff.edits, EditMode::Off);
+    }
+
+    #[test]
+    fn parse_senders() {
+        let c = parse(
+            r#"
             [notifications.senders]
-            always = ["@vip:example.com"]
-            never = ["@bot:example.com"]
-        "#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.notifications.senders.always, vec!["@vip:example.com"]);
-        assert_eq!(config.notifications.senders.never, vec!["@bot:example.com"]);
+            noisy = ["@vip:example.com"]
+            silent = ["@neutral:example.com"]
+            off = ["@bot:example.com"]
+            "#,
+        );
+        assert_eq!(c.notifications.senders.noisy, vec!["@vip:example.com"]);
+        assert_eq!(c.notifications.senders.silent, vec!["@neutral:example.com"]);
+        assert_eq!(c.notifications.senders.off, vec!["@bot:example.com"]);
     }
 
     #[test]
     fn parse_quiet_hours() {
-        let toml = r#"
+        let c = parse(
+            r#"
             [behavior.quiet_hours]
             enabled = true
             start = "22:00"
             end = "08:00"
+            "#,
+        );
+        assert!(c.behavior.quiet_hours.enabled);
+        assert_eq!(c.behavior.quiet_hours.start, "22:00");
+    }
+
+    #[test]
+    fn loudest_picks_louder() {
+        assert_eq!(NotifyLevel::Off.loudest(NotifyLevel::Silent), NotifyLevel::Silent);
+        assert_eq!(NotifyLevel::Silent.loudest(NotifyLevel::Noisy), NotifyLevel::Noisy);
+        assert_eq!(NotifyLevel::Noisy.loudest(NotifyLevel::Off), NotifyLevel::Noisy);
+    }
+
+    #[test]
+    fn load_missing_file() {
+        let c = Config::load(Path::new("/nonexistent/path/config.toml")).unwrap();
+        assert!(c.notifications.enabled);
+    }
+
+    #[test]
+    fn invalid_toml_errors() {
+        let invalid = "not = valid = toml";
+        let result = toml::Deserializer::parse(invalid);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn unknown_top_level_field_calls_ignored_callback() {
+        let toml_text = r#"
+            [notifications]
+            enabled = true
+            mystery_field = "huh"
+
+            [behavior]
+            show_message_body = true
         "#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert!(config.behavior.quiet_hours.enabled);
-        assert_eq!(config.behavior.quiet_hours.start, "22:00");
-        assert_eq!(config.behavior.quiet_hours.end, "08:00");
+        let de = toml::Deserializer::parse(toml_text).unwrap();
+        let mut paths: Vec<String> = Vec::new();
+        let _: RawConfig = serde_ignored::deserialize(de, |p| paths.push(p.to_string())).unwrap();
+        assert!(
+            paths.iter().any(|p| p.contains("mystery_field")),
+            "expected unknown field path captured, got: {paths:?}"
+        );
     }
 
     #[test]
-    fn load_missing_file_returns_defaults() {
-        let config = Config::load(Path::new("/nonexistent/path/config.toml")).unwrap();
-        assert!(config.notifications.enabled);
+    fn invalid_enum_variant_returns_err() {
+        let toml_text = r#"
+            [notifications.dms]
+            unencrypted = "noise"
+        "#;
+        let de = toml::Deserializer::parse(toml_text).unwrap();
+        let result: Result<RawConfig, _> = serde_ignored::deserialize(de, |_| {});
+        let err = result.expect_err("expected error for invalid enum variant");
+        let msg = err.to_string();
+        // serde error mentions the unknown variant or expected variants
+        assert!(
+            msg.contains("noise") || msg.contains("variant") || msg.contains("expected"),
+            "unhelpful error: {msg}"
+        );
     }
 
     #[test]
-    fn parse_invalid_toml_fails() {
-        let toml = "this is not valid toml {{{}}}";
-        assert!(toml::from_str::<Config>(toml).is_err());
+    fn override_key_without_bang_dropped() {
+        // typo: "unencryptd" instead of "unencrypted" → not a known field, doesn't start with !
+        // expected: dropped (warning logged), no override created, defaults preserved
+        let c = parse(
+            r#"
+            [notifications.rooms]
+            unencryptd = "noisy"
+            "#,
+        );
+        assert!(c.notifications.rooms.overrides.is_empty());
+        // defaults still apply
+        assert_eq!(c.notifications.rooms.defaults.unencrypted, NotifyLevel::Silent);
+    }
+
+    #[test]
+    fn override_with_invalid_inner_field_dropped() {
+        // valid override key, but invalid inner field name → override dropped
+        let c = parse(
+            r#"
+            [notifications.rooms."!a:b"]
+            this_is_not_a_field = "noisy"
+            "#,
+        );
+        assert!(c.notifications.rooms.overrides.is_empty());
+    }
+
+    #[test]
+    fn effective_for_with_mute_returns_all_off() {
+        let c = parse(
+            r#"
+            [notifications.rooms."!quiet:example.com"]
+            mute = true
+            "#,
+        );
+        let eff = c.notifications.effective_for("!quiet:example.com", false);
+        assert_eq!(eff.unencrypted, NotifyLevel::Off);
+        assert_eq!(eff.encrypted, NotifyLevel::Off);
+        assert_eq!(eff.mentions_you, NotifyLevel::Off);
+        assert_eq!(eff.mentions_room, NotifyLevel::Off);
+        assert_eq!(eff.keyword_match, NotifyLevel::Off);
+        assert_eq!(eff.calls, NotifyLevel::Off);
+        assert_eq!(eff.reactions, NotifyLevel::Off);
+        assert_eq!(eff.edits, EditMode::Off);
+    }
+
+    #[test]
+    fn load_real_file_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+                [notifications]
+                enabled = true
+                sound = "Tink"
+                invites = "silent"
+
+                [notifications.dms]
+                unencrypted = "off"
+
+                [notifications.rooms."!special:example.com"]
+                unencrypted = "noisy"
+
+                [notifications.senders]
+                noisy = ["@vip:example.com"]
+
+                [behavior]
+                max_body_length = 100
+            "#,
+        )
+        .unwrap();
+
+        let c = Config::load(&path).unwrap();
+        assert!(c.notifications.enabled);
+        assert_eq!(c.notifications.sound, "Tink");
+        assert_eq!(c.notifications.invites, NotifyLevel::Silent);
+        assert_eq!(c.notifications.dms.unencrypted, NotifyLevel::Off);
+        // dms default for other fields preserved
+        assert_eq!(c.notifications.dms.encrypted, NotifyLevel::Noisy);
+        assert!(c.notifications.rooms.overrides.contains_key("!special:example.com"));
+        let eff = c.notifications.effective_for("!special:example.com", false);
+        assert_eq!(eff.unencrypted, NotifyLevel::Noisy);
+        assert_eq!(c.notifications.senders.noisy, vec!["@vip:example.com"]);
+        assert_eq!(c.behavior.max_body_length, 100);
+    }
+
+    fn senders(noisy: &[&str], silent: &[&str], off: &[&str]) -> SenderFilters {
+        SenderFilters {
+            noisy: noisy.iter().map(|s| s.to_string()).collect(),
+            silent: silent.iter().map(|s| s.to_string()).collect(),
+            off: off.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn sender_filters_contains_finds_in_each_list() {
+        let s = senders(&["@a:x"], &["@b:x"], &["@c:x"]);
+        assert!(s.contains("@a:x"));
+        assert!(s.contains("@b:x"));
+        assert!(s.contains("@c:x"));
+    }
+
+    #[test]
+    fn sender_filters_contains_returns_false_when_not_listed() {
+        let s = senders(&["@a:x"], &["@b:x"], &["@c:x"]);
+        assert!(!s.contains("@unknown:x"));
     }
 }

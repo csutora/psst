@@ -5,7 +5,7 @@ pub(crate) mod macos;
 
 /// a notification to display to the user
 pub struct Notification {
-    /// deterministic identifier (usually room_id), used for replacement and dismissal
+    /// deterministic identifier, used for replacement and dismissal
     pub tag: String,
     /// main title (room name or sender for direct messages)
     pub title: String,
@@ -19,6 +19,8 @@ pub struct Notification {
     pub sound: Option<String>,
     /// thread identifier for grouping (usually room_id)
     pub thread_id: String,
+    /// when true, deliver as a silent in-place update (no banner alert)
+    pub replace: bool,
 }
 
 /// platform notification backend
@@ -59,6 +61,7 @@ pub async fn test() -> anyhow::Result<()> {
         body: "silent test notification".to_string(),
         sound: None,
         thread_id: "psst-test".to_string(),
+        replace: false,
     })?;
 
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -71,6 +74,7 @@ pub async fn test() -> anyhow::Result<()> {
         body: "noisy test notification".to_string(),
         sound: Some(sound_name.to_string()),
         thread_id: "psst-test".to_string(),
+        replace: false,
     })?;
 
     eprintln!("done. check your notification center.");

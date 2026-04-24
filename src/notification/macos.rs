@@ -23,24 +23,32 @@ pub fn ensure_app_bundle() -> anyhow::Result<()> {
         .file_name()
         .context("executable has no file name")?;
 
+    // detect cargo dev/release builds. for these we always create a local
+    // wrapper next to the binary instead of routing through ~/Applications,
+    // so testing a fresh build doesn't silently re-exec the installed prod app
+    let exe_str = exe.to_string_lossy();
+    let is_cargo_build = exe_str.contains("/target/debug/") || exe_str.contains("/target/release/");
+
     // if home-manager or a prior install put a signed .app at ~/Applications/psst.app,
     // re-exec through that. this preserves notification permissions across rebuilds
-    if let Some(home) = std::env::var_os("HOME") {
-        let user_app = PathBuf::from(home).join("Applications").join("psst.app");
-        let bundled_bin = user_app.join("Contents/MacOS").join(binary_name);
-        if bundled_bin.exists() {
-            let status = std::process::Command::new("open")
-                .arg(&user_app)
-                .arg("--args")
-                .args(std::env::args().skip(1))
-                .status()
-                .context("failed to launch app bundle via `open`")?;
-            if !status.success() {
-                anyhow::bail!("failed to launch app bundle (exit code {:?})", status.code());
+    if !is_cargo_build {
+        if let Some(home) = std::env::var_os("HOME") {
+            let user_app = PathBuf::from(home).join("Applications").join("psst.app");
+            let bundled_bin = user_app.join("Contents/MacOS").join(binary_name);
+            if bundled_bin.exists() {
+                let status = std::process::Command::new("open")
+                    .arg(&user_app)
+                    .arg("--args")
+                    .args(std::env::args().skip(1))
+                    .status()
+                    .context("failed to launch app bundle via `open`")?;
+                if !status.success() {
+                    anyhow::bail!("failed to launch app bundle (exit code {:?})", status.code());
+                }
+                eprintln!("daemon launched via {}", user_app.display());
+                eprintln!("stop with: pkill -f psst.app");
+                std::process::exit(0);
             }
-            eprintln!("daemon launched via {}", user_app.display());
-            eprintln!("stop with: pkill -f psst.app");
-            std::process::exit(0);
         }
     }
 
@@ -76,7 +84,7 @@ pub fn ensure_app_bundle() -> anyhow::Result<()> {
         let _ = std::fs::remove_file(&link_path);
     }
     std::fs::hard_link(&exe, &link_path)
-        .with_context(|| format!("failed to link binary into app bundle"))?;
+        .context("failed to link binary into app bundle")?;
 
     let _ = std::process::Command::new("codesign")
         .args(["--force", "--sign", "-"])
@@ -152,6 +160,10 @@ impl Notifier for MacosNotifier {
 
         content.setBody(&NSString::from_str(&notification.body));
         content.setThreadIdentifier(&NSString::from_str(&notification.thread_id));
+
+        if notification.replace {
+            content.setInterruptionLevel(UNNotificationInterruptionLevel::Passive);
+        }
 
         if let Some(name) = &notification.sound {
             // titlecase so "blow"/"BLOW"/"Blow" all work

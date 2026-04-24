@@ -9,6 +9,25 @@ use matrix_sdk_ui::sync_service::{State as SyncState, SyncService};
 
 use crate::session;
 
+/// how long to wait for the very first sync to reach `Running` before bailing
+const INITIAL_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// backoff between verification request attempts when a stale request from
+/// another session causes the SDK to cancel ours
+const VERIFICATION_RETRY_DELAY: Duration = Duration::from_secs(2);
+
+/// pause after starting sync so it can process the events that carry the
+/// secret-sharing key, before we look up backup state
+const SYNC_SETTLE_DELAY: Duration = Duration::from_secs(2);
+
+/// how often to poll matrix-sdk's backup state after verification, looking
+/// for the secret-shared backup key to arrive
+const BACKUP_KEY_POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+/// brief grace period after `drop(client)` so matrix-sdk's background tasks
+/// can notice the drop and flush pending IO before we return
+const SHUTDOWN_FLUSH_DELAY: Duration = Duration::from_millis(100);
+
 /// start sync service and wait for initial sync to complete
 async fn start_sync(client: &Client) -> anyhow::Result<SyncService> {
     let sync_service = SyncService::builder(client.clone())
@@ -20,7 +39,7 @@ async fn start_sync(client: &Client) -> anyhow::Result<SyncService> {
     let mut state_sub = sync_service.state();
     sync_service.start().await;
 
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    let deadline = tokio::time::Instant::now() + INITIAL_SYNC_TIMEOUT;
     loop {
         tokio::select! {
             state = state_sub.next() => {
@@ -48,7 +67,7 @@ pub async fn verify(data_dir: &Path) -> anyhow::Result<()> {
 
     sync_service.stop().await;
     drop(client);
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::sleep(SHUTDOWN_FLUSH_DELAY).await;
     result
 }
 
@@ -103,7 +122,7 @@ async fn do_verify(client: &Client) -> anyhow::Result<()> {
                 VerificationRequestState::Cancelled(_) if attempt < 2 => {
                     eprintln!("conflicted with a stale verification request, retrying...");
                     eprintln!();
-                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    tokio::time::sleep(VERIFICATION_RETRY_DELAY).await;
                     should_retry = true;
                     break;
                 }
@@ -127,14 +146,14 @@ pub async fn import_keys(data_dir: &Path) -> anyhow::Result<()> {
     let client = session::restore_session(data_dir).await?;
     let sync_service = start_sync(&client).await?;
 
-    // brief pause for sync to process events
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    // brief pause for sync to process events that carry the secret-shared key
+    tokio::time::sleep(SYNC_SETTLE_DELAY).await;
 
     let result = import_keys_inner(&client).await;
 
     sync_service.stop().await;
     drop(client);
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::sleep(SHUTDOWN_FLUSH_DELAY).await;
     result
 }
 
@@ -148,8 +167,8 @@ async fn run_sas(sas: SasVerification, should_accept: bool) -> anyhow::Result<()
     let mut changes = sas.changes();
     while let Some(state) = changes.next().await {
         match state {
-            SasState::KeysExchanged { emojis, .. } => {
-                if let Some(emojis) = emojis {
+            SasState::KeysExchanged { emojis: Some(emojis), .. } => {
+                {
                     eprintln!();
                     eprintln!("compare these emoji on both devices:");
                     eprintln!();
@@ -200,7 +219,7 @@ async fn import_keys_inner(client: &Client) -> anyhow::Result<()> {
         if matches!(backups.state(), BackupState::Enabled) {
             break;
         }
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        tokio::time::sleep(BACKUP_KEY_POLL_INTERVAL).await;
     }
 
     // if backups are already enabled (via secret sharing), we're done

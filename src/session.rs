@@ -38,6 +38,10 @@ struct StoredCredentials {
 
 const KEYRING_SERVICE: &str = "psst";
 
+/// brief grace period after `drop(client)` so matrix-sdk's background tasks
+/// can notice the drop and flush pending IO before we return
+const SHUTDOWN_FLUSH_DELAY: Duration = Duration::from_millis(100);
+
 fn keyring_entry(user_id: &str) -> anyhow::Result<keyring::Entry> {
     keyring::Entry::new(KEYRING_SERVICE, &format!("credentials:{user_id}"))
         .context("Failed to create keyring entry")
@@ -409,7 +413,7 @@ pub async fn login(
 
     // drop the client and give the connection pool time to shut down
     drop(client);
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::sleep(SHUTDOWN_FLUSH_DELAY).await;
 
     eprintln!();
     eprintln!("logged in as {user_id} (session: {device_id})");
@@ -503,7 +507,7 @@ async fn try_server_logout(data_dir: &Path, meta: &SessionMetadata) -> anyhow::R
 
     tracing::info!("Server-side session invalidated");
     drop(client);
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::sleep(SHUTDOWN_FLUSH_DELAY).await;
     Ok(())
 }
 
@@ -546,7 +550,7 @@ pub async fn list_rooms(data_dir: &Path) -> anyhow::Result<()> {
             .max()
             .unwrap_or(7)
             .max(7);
-        println!("{:<id_width$} {:<6} {}", "ROOM ID", "E2EE", "NAME");
+        println!("{:<id_width$} {:<6} NAME", "ROOM ID", "E2EE");
         println!("{}", "-".repeat(id_width + 8 + 20));
         for room in &rooms {
             let name = room
@@ -567,7 +571,7 @@ pub async fn list_rooms(data_dir: &Path) -> anyhow::Result<()> {
     }
 
     drop(client);
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::sleep(SHUTDOWN_FLUSH_DELAY).await;
     Ok(())
 }
 
@@ -607,10 +611,10 @@ pub async fn mark_read(data_dir: &Path, room_id: &str) -> anyhow::Result<()> {
 
     // also dismiss any local notification
     if let Ok(notifier) = crate::notification::create_notifier() {
-        let _ = notifier.dismiss(&room_id.to_string());
+        let _ = notifier.dismiss(room_id.as_str());
     }
 
     drop(client);
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    tokio::time::sleep(SHUTDOWN_FLUSH_DELAY).await;
     Ok(())
 }
