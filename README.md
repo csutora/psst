@@ -7,7 +7,7 @@ intended to be used with clients like [iamb](https://iamb.chat).
 
 - native notifications on macos (UNUserNotificationCenter) and linux (dbus)
 - end-to-end encryption support with device verification and key backup
-- local filter pipeline: per-room overrides, sender allow/blocklists, quiet hours
+- highly configurable notification filters with room and sender-specific overrides
 - notifications dismissed automatically on read receipts from other sessions
 - config hot-reload via file watcher and sighup
 - nix flake with home-manager module (macos + linux)
@@ -17,7 +17,6 @@ intended to be used with clients like [iamb](https://iamb.chat).
 - a matrix homeserver with sliding sync support (synapse, continuwuity, etc)
 - a nix setup with home-manager
 - linux: systemd, dbus, a notification daemon
-- macos: none
 
 ## install
 
