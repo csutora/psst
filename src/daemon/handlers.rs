@@ -46,6 +46,8 @@ pub(super) async fn handle_message(
         None => return,
     };
 
+    // server-side push rule decision; not used to gate notifications (psst trusts
+    // its own filter pipeline + per-room overrides), kept only for log diagnostics
     let push_notify = actions.iter().any(|a| matches!(a, Action::Notify));
 
     let (kind, edited_event_id) = match original.content.relates_to.as_ref() {
@@ -98,6 +100,7 @@ pub(super) async fn handle_message(
         ?kind,
         is_direct,
         is_encrypted,
+        push_notify,
         mentions_you,
         mentions_room,
         matched_keyword,
@@ -113,7 +116,6 @@ pub(super) async fn handle_message(
             room_name,
             is_direct,
             is_encrypted,
-            push_notify,
             mentions_you,
             mentions_room,
             matched_keyword,

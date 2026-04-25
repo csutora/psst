@@ -102,9 +102,13 @@ fn init_tracing(log_file: Option<&PathBuf>, verbose: bool) {
             .with_ansi(false)
             .init();
     } else {
+        // disable ANSI escape codes when stderr isn't a tty — under launchd
+        // (or any redirect-to-file), the codes pollute the log file
+        use std::io::IsTerminal;
         tracing_subscriber::fmt()
             .with_env_filter(env_filter)
             .with_writer(std::io::stderr)
+            .with_ansi(std::io::stderr().is_terminal())
             .init();
     }
 }

@@ -27,7 +27,6 @@ pub struct EventContext {
     pub room_id: String,
     pub is_direct: bool,
     pub is_encrypted: bool,
-    pub push_notify: bool,
     pub mentions_you: bool,
     pub mentions_room: bool,
     pub matched_keyword: bool,
@@ -77,16 +76,6 @@ pub fn evaluate(
         },
         EventKind::Message => message_level(ctx, &effective),
     };
-
-    if ctx.kind == EventKind::Message
-        && !ctx.is_encrypted
-        && !ctx.push_notify
-        && !ctx.mentions_you
-        && !ctx.mentions_room
-        && !ctx.matched_keyword
-    {
-        return FilterResult::Suppress;
-    }
 
     match level {
         NotifyLevel::Off => FilterResult::Suppress,
@@ -226,7 +215,6 @@ mod tests {
             room_id: "!room:example.com".into(),
             is_direct: true,
             is_encrypted: false,
-            push_notify: true,
             mentions_you: false,
             mentions_room: false,
             matched_keyword: false,
@@ -288,25 +276,6 @@ mod tests {
         let c = EventContext { is_direct: false, ..ctx() };
         assert_eq!(
             evaluate(&c, &config, chrono::Local::now()),
-            FilterResult::Notify { sound: true }
-        );
-    }
-
-    #[test]
-    fn unencrypted_without_push_suppresses() {
-        let c = EventContext { push_notify: false, ..ctx() };
-        assert_eq!(evaluate(&c, &Config::default(), chrono::Local::now()), FilterResult::Suppress);
-    }
-
-    #[test]
-    fn encrypted_bypasses_push_check() {
-        let c = EventContext {
-            is_encrypted: true,
-            push_notify: false,
-            ..ctx()
-        };
-        assert_eq!(
-            evaluate(&c, &Config::default(), chrono::Local::now()),
             FilterResult::Notify { sound: true }
         );
     }
